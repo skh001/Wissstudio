@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# Next.js / Vercel build output
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# environment & secrets — never commit (only the template is tracked)
+.env
+.env.*
+!.env.example
+*.pem
+
+# Supabase CLI local state (project ref, pooler URL…)
+supabase/.temp/
+supabase/.branches/
+
+# logs & OS files
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db

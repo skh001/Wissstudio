@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 340 100% 99.4%;      /* porcelain #FFFBFC */
+    --foreground: 331 17% 20%;         /* plum ink #3B2A32 */
+    --card: 0 0% 100%;
+    --card-foreground: 331 17% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 331 17% 20%;
+    --primary: 352 34% 57%;            /* rose gold #B76E79 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 333 80% 91%;          /* blush #FAD7E6 */
+    --secondary-foreground: 350 29% 37%;
+    --muted: 335 60% 97%;
+    --muted-foreground: 330 7% 51%;    /* mauve #8D7A83 */
+    --accent: 333 80% 95%;
+    --accent-foreground: 350 29% 37%;
+    --destructive: 0 66% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 335 45% 92%;
+    --input: 335 45% 90%;
+    --ring: 352 34% 57%;
+    --radius: 1rem;
+  }
+  .dark {
+    --background: 330 16% 8%;
+    --foreground: 335 40% 94%;
+    --card: 330 15% 11%;
+    --card-foreground: 335 40% 94%;
+    --popover: 330 15% 11%;
+    --popover-foreground: 335 40% 94%;
+    --primary: 350 50% 70%;
+    --primary-foreground: 330 20% 10%;
+    --secondary: 333 25% 20%;
+    --secondary-foreground: 335 60% 90%;
+    --muted: 330 14% 16%;
+    --muted-foreground: 330 10% 64%;
+    --accent: 333 22% 18%;
+    --accent-foreground: 335 60% 90%;
+    --destructive: 0 62% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 330 14% 20%;
+    --input: 330 14% 22%;
+    --ring: 350 50% 70%;
+  }
+  * { @apply border-border; }
+  html { -webkit-tap-highlight-color: transparent; }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  h1, h2, h3 { @apply font-display tracking-tight; }
+  :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background; }
+  ::selection { background: #FAD7E6; color: #3B2A32; }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:bg-card/70;
+  }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ── FullCalendar theme ───────────────────────────── */
+.fc {
+  --fc-border-color: hsl(var(--border));
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: hsl(var(--muted));
+  --fc-today-bg-color: hsl(var(--accent) / 0.6);
+  --fc-now-indicator-color: #B76E79;
+  --fc-event-border-color: transparent;
+  --fc-list-event-hover-bg-color: hsl(var(--accent));
+  font-size: 0.85rem;
+}
+.fc .fc-toolbar-title { @apply font-display text-2xl font-semibold; }
+.fc .fc-button {
+  @apply rounded-full border border-border bg-card px-3 py-1.5 text-sm font-medium capitalize text-foreground shadow-none transition hover:bg-accent;
+}
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active { @apply border-primary bg-primary text-primary-foreground; }
+.fc .fc-button:focus { box-shadow: none !important; }
+.fc .fc-col-header-cell-cushion, .fc .fc-daygrid-day-number { @apply py-2 text-xs font-medium text-muted-foreground; }
+.fc-event { @apply cursor-pointer rounded-lg px-1 text-xs font-medium shadow-sm; }
+.fc .fc-timegrid-slot { height: 2.6rem; }
+.fc .fc-scrollgrid { @apply rounded-2xl; }
+.fc .fc-toolbar { @apply flex-wrap gap-3; }
+@media (max-width: 640px) {
+  .fc .fc-toolbar { @apply flex-col items-stretch; }
+  .fc .fc-toolbar-chunk { @apply flex justify-center; }
+}
+
+/* ── Print (invoices / receipts) ─────────────────── */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; inset: 0; padding: 0; box-shadow: none !important; border: 0 !important; }
+  .no-print { display: none !important; }
+}

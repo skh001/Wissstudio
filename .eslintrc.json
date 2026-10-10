@@ -1,0 +1,5 @@
+{
+  "root": true,
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "ignorePatterns": [".next/", "out/", "node_modules/", "next-env.d.ts", "public/sw.js"]
+}
