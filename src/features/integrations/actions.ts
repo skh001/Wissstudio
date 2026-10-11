@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser, runAction, AppError } from "@/lib/action";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { connectCalendly, disconnectCalendlyWebhook, importCalendlyBooking, pullCalendlyEvents } from "./calendly";
-import { pullGoogleChanges } from "./google-calendar";
+import { autoSyncCalendly, connectCalendly, disconnectCalendlyWebhook, importCalendlyBooking, pullCalendlyEvents } from "./calendly";
+import { autoSyncGoogle, pullGoogleChanges } from "./google-calendar";
+import { patchIntegrationSettings } from "./settings-store";
 
 function revalidateBookings() {
   for (const p of ["/dashboard", "/calendar", "/appointments", "/clients", "/booking"]) revalidatePath(p);
@@ -71,11 +71,29 @@ export async function syncGoogleNow() {
 export async function setGoogleImportExternal(value: boolean) {
   return runAction(async () => {
     const { user } = await requireUser();
-    const admin = createAdminClient();
-    const { data } = await admin.from("integrations").select("settings").eq("owner_id", user.id).eq("provider", "google").single();
-    await admin.from("integrations").update({ settings: { ...(data?.settings ?? {}), import_external: value } })
-      .eq("owner_id", user.id).eq("provider", "google");
+    requireServiceRole();
+    await patchIntegrationSettings(user.id, "google", { import_external: value });
     revalidatePath("/settings");
     return null;
+  });
+}
+
+/**
+ * Background sync called every minute by the open app (one tab only). Cheap when nothing is due:
+ * the throttling lives server side, so several devices plus the cron never over-poll Calendly or Google.
+ * Doesn't revalidate: new appointments reach every screen through Supabase Realtime.
+ */
+export async function autoSyncAction() {
+  return runAction(async () => {
+    const { user } = await requireUser();
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return { changed: 0, ran: false };
+    const [calendly, google] = await Promise.allSettled([autoSyncCalendly(user.id), autoSyncGoogle(user.id)]);
+    let changed = 0;
+    let ran = false;
+    for (const r of [calendly, google]) {
+      if (r.status === "fulfilled") { changed += r.value.changed; ran ||= r.value.ran; }
+      else console.error("[auto-sync]", r.reason);
+    }
+    return { changed, ran };
   });
 }

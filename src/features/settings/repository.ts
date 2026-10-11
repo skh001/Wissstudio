@@ -19,8 +19,16 @@ export async function updateSettings(patch: Partial<SalonSettings>) {
   ) as SalonSettings;
 }
 
+const PUBLIC_SETTING_KEYS = new Set([
+  "import_external", "webhook_uri", "webhook_error", "webhook_state", "last_webhook_at", "last_pull_at", "last_sync_error", "channel_expiration",
+]);
+
 export async function listIntegrations(): Promise<IntegrationStatus[]> {
   const { supabase } = await requireUser();
   const { data } = await supabase.from("integrations").select("provider, account_email, connected_at, settings");
-  return (data ?? []) as IntegrationStatus[];
+  // Only status fields reach the browser: no signing key, sync token or channel id.
+  return ((data ?? []) as IntegrationStatus[]).map((i) => ({
+    ...i,
+    settings: Object.fromEntries(Object.entries(i.settings ?? {}).filter(([k]) => PUBLIC_SETTING_KEYS.has(k))),
+  }));
 }

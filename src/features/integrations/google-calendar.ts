@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { siteUrl } from "@/lib/site-url";
+import { patchIntegrationSettings } from "./settings-store";
 import type { AppointmentStatus } from "@/types/domain";
 
 /**
@@ -22,6 +23,7 @@ type GoogleSettings = {
   channel_id?: string;
   resource_id?: string;
   channel_expiration?: number;
+  last_pull_at?: string;
 };
 
 interface GoogleEvent {
@@ -239,12 +241,27 @@ export async function pullGoogleChanges(ownerId: string): Promise<number> {
     if (!pageToken) break;
   }
 
-  if (nextSyncToken && nextSyncToken !== auth.settings.sync_token) {
-    await admin.from("integrations")
-      .update({ settings: { ...auth.settings, sync_token: nextSyncToken } })
-      .eq("owner_id", ownerId).eq("provider", "google");
-  }
+  await patchIntegrationSettings(ownerId, "google", {
+    last_pull_at: new Date().toISOString(),
+    ...(nextSyncToken ? { sync_token: nextSyncToken } : {}),
+  });
   return changed;
+}
+
+/**
+ * Automatic pull, called by the cron and by the open app every minute. Every 5 minutes when Google
+ * push notifications aren't active (local/HTTP, expired channel), every 30 minutes as a safety net otherwise.
+ */
+export async function autoSyncGoogle(ownerId: string): Promise<{ ran: boolean; changed: number }> {
+  const integ = await getIntegration(ownerId);
+  if (!integ) return { ran: false, changed: 0 };
+  const settings = integ.settings ?? {};
+  const pushActive = !!settings.channel_id && Number(settings.channel_expiration ?? 0) > Date.now();
+  const interval = (pushActive ? 30 : 5) * 60_000;
+  const last = settings.last_pull_at ? new Date(settings.last_pull_at).getTime() : 0;
+  if (Date.now() - last < interval) return { ran: false, changed: 0 };
+  await patchIntegrationSettings(ownerId, "google", { last_pull_at: new Date().toISOString() });
+  return { ran: true, changed: await pullGoogleChanges(ownerId) };
 }
 
 /** Stops the push-notification channel so Google no longer calls the webhook. Never throws. */
@@ -277,7 +294,7 @@ export async function registerGoogleWatch(ownerId: string) {
   });
   if (!res.ok) return console.error("[google] watch failed", res.status, await res.text());
   const ch = (await res.json()) as { resourceId: string; expiration: string };
-  await createAdminClient().from("integrations").update({
-    settings: { ...auth.settings, channel_id: channelId, resource_id: ch.resourceId, channel_expiration: Number(ch.expiration) },
-  }).eq("owner_id", ownerId).eq("provider", "google");
+  await patchIntegrationSettings(ownerId, "google", {
+    channel_id: channelId, resource_id: ch.resourceId, channel_expiration: Number(ch.expiration),
+  });
 }

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import type { SalonSettings } from "@/types/domain";
 import { QuickDialogs } from "@/features/quick-actions/quick-dialogs";
+import { LiveUpdates } from "@/features/live/live-updates";
 import { CommandSearch } from "./command-search";
 import { MobileNav } from "./mobile-nav";
 import { SalonProvider } from "./salon-context";
@@ -36,6 +37,7 @@ export function AppShell({ settings, email, children }: { settings: SalonSetting
       <CommandSearch />
       <ShortcutsDialog />
       <QuickDialogs />
+      <LiveUpdates ownerId={settings.owner_id} />
     </SalonProvider>
   );
 }

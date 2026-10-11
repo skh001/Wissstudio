@@ -50,3 +50,16 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+// Booking notifications: open (or focus) the app on the appointment.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || "/dashboard", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const win = wins.find((w) => w.url.startsWith(self.location.origin));
+      if (win) return win.focus().then((w) => (w && "navigate" in w ? w.navigate(url) : undefined));
+      return self.clients.openWindow(url);
+    }),
+  );
+});

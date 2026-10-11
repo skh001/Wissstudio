@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { handleCalendlyEvent, verifyCalendlySignature } from "@/features/integrations/calendly";
+import { handleCalendlyEvent, recordCalendlyWebhook, verifyCalendlySignature } from "@/features/integrations/calendly";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +21,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = JSON.parse(raw) as { event: string; payload: Parameters<typeof handleCalendlyEvent>[2] };
-    await handleCalendlyEvent(ownerId, body.event, body.payload);
-    return NextResponse.json({ ok: true });
+    const result = await handleCalendlyEvent(ownerId, body.event, body.payload);
+    await recordCalendlyWebhook(ownerId);
+    return NextResponse.json({ ok: true, result });
   } catch (e) {
     console.error("[calendly] webhook", e);
     // 500 makes Calendly retry later

@@ -38,6 +38,7 @@ Add these in **Vercel → Project → Settings → Environment Variables** (scop
    This applies every file in `supabase/migrations/` that isn't applied yet, including:
    - `20261010000000_pdf_receipts.sql`: allows PDF receipts / supplier invoices in the `media` bucket;
    - `20261011000000_harden_functions.sql`: stops anonymous visitors from calling the `SECURITY DEFINER` helpers (`bootstrap_owner`, `seed_demo_data`).
+   - `20261011010000_realtime_notifications.sql`: turns on Supabase Realtime for appointments, activity and expenses (live dashboard), tags activity as external (Calendly/Google) vs. made in the app (only external events ring), and adds the atomic settings merge used by the sync.
    `seed.sql` (demo login) is **not** pushed to production.
 2. **Authentication → URL Configuration**:
    - Site URL: `https://YOUR-DOMAIN`
@@ -83,8 +84,20 @@ The repository is initialised with a first commit (see below). To publish it:
     - set `NEXT_PUBLIC_SITE_URL` to the final domain if it changed, then **Redeploy**;
     - update the Supabase Site URL / Redirect URLs (section 2) and the Google redirect URI (section 5) to the same domain.
 
-### Cron
-`vercel.json` runs `/api/cron/google-sync` once a day (06:00 UTC): Google safety-net sync, renewal of Google push notifications (they expire after ~7 days) and Calendly polling. **The Hobby plan only allows daily crons**; a more frequent schedule makes the deployment fail. On **Pro** you can change the schedule to `*/15 * * * *` for a 15-minute Calendly/Google safety net. Day-to-day sync does not depend on the cron: Google push notifications, the Calendly webhook and the **Sync** buttons are instant.
+### Cron and automatic sync
+Nobody has to click "Sync". Calendly bookings arrive, in order of preference:
+1. **Webhook** (HTTPS + paid Calendly plan): instantly. The app checks hourly that Calendly still delivers to it.
+2. **In-app background sync**: while the app is open on any device, one tab per browser checks every minute whether a pull is due: **every 5 minutes** when the webhook is missing, paused or deleted, every 30 minutes as a safety net otherwise. Same for Google Calendar when push notifications aren't active. This also works in local development.
+3. **Cron** `/api/cron/google-sync`, for when the app isn't open. It uses the same throttling, so any schedule is safe.
+
+`vercel.json` schedules the cron **once a day**, because the Hobby plan rejects more frequent crons (the deployment fails). To get the 5-minute background sync while the app is closed:
+- **Vercel Pro**: change the schedule in `vercel.json` to `*/5 * * * *` and redeploy; or
+- **Hobby**: create a free job on cron-job.org (or similar) calling `GET https://YOUR-DOMAIN/api/cron/google-sync` every 5 minutes with the header `Authorization: Bearer <CRON_SECRET>`.
+
+The cron also renews Google push notifications (they expire after ~7 days). Every sync path is keyed by the Calendly event URI, so nothing is ever duplicated.
+
+### Live updates and notifications
+New and cancelled bookings reach every open screen through **Supabase Realtime** (dashboard KPIs, today's appointments, revenue, calendar, recent activity, notification bell) without a refresh. If Realtime can't connect, the app polls the activity feed every 20 seconds instead. Open forms and dialogs are never reset: the refresh waits until they close. Sounds (`public/sounds/new-booking.mp3`, `public/sounds/cancel.mp3`), vibration and browser notifications are configured per device in **Settings → Notifications**.
 
 ### Function limits
 Routes and pages that call Google or Calendly (`/settings`, `/booking`, `/calendar`, the Google OAuth callback, the cron) declare `maxDuration = 60` seconds, which every plan allows.
@@ -182,6 +195,17 @@ Run through this on the live URL after each first deploy.
 - [ ] Book on calendly.com → appears via webhook (paid plan) or "Sync now"
 - [ ] Cancel on Calendly → cancelled in the studio; cancel in the studio → cancelled on Calendly
 - [ ] Same booking received twice → still one appointment
+
+**Live updates & notifications** (two devices or two browsers help)
+- [ ] Settings → Notifications → "Test new booking" plays the chime and shows "🎉 New Appointment!"; "Test cancellation" plays the softer tone
+- [ ] Turn sounds off in one tab → the test is silent in the other tabs too
+- [ ] Enable browser notifications → the browser asks for permission → test shows a system notification
+- [ ] Open the dashboard in two tabs, book on Calendly → both update by themselves (today, revenue, activity, calendar); the chime plays **once**; toast "🎉 New Appointment! / Name booked: / Service / Tomorrow - 14:00"
+- [ ] Refresh the page → no sound replays
+- [ ] Cancel on Calendly → "❌ Appointment Cancelled" + cancel tone, appointment shows cancelled
+- [ ] Create or cancel an appointment yourself in the app → screens update, **no** sound
+- [ ] On a phone (app open): the phone vibrates and plays the sound
+- [ ] Settings → Integrations shows "Last sync" (and "Last instant update" with a webhook) updating on its own
 
 **Cron**
 - [ ] Vercel → Settings → Cron Jobs shows `/api/cron/google-sync`; "Run" returns `{"synced": …}`

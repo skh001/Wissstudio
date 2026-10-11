@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarDays, CheckCircle2, ExternalLink, Link2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -10,10 +10,23 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useServerAction } from "@/hooks/use-server-action";
-import { formatDate } from "@/lib/format";
+import { formatDate, timeAgo } from "@/lib/format";
 import type { IntegrationStatus } from "@/types/domain";
 import { connectCalendlyAction, disconnectCalendlyAction, setGoogleImportExternal, syncCalendlyNow, syncGoogleNow } from "@/features/integrations/actions";
 import { disconnectIntegration } from "../actions";
+
+/** Rendered in the browser only (server time zone differs) and kept fresh while the page stays open. */
+function SyncTime({ iso }: { iso: unknown }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof iso !== "string") return;
+    const update = () => setText(`${timeAgo(iso)} (${formatDate(iso, "d MMM, HH:mm")})`);
+    update();
+    const t = window.setInterval(update, 30_000);
+    return () => window.clearInterval(t);
+  }, [iso]);
+  return <span className="text-foreground">{typeof iso === "string" ? text ?? "…" : "not yet"}</span>;
+}
 
 export function IntegrationsPanel({
   integrations, googleConfigured, serviceRoleConfigured, siteUrl,
@@ -23,6 +36,7 @@ export function IntegrationsPanel({
   const google = integrations.find((i) => i.provider === "google");
   const calendly = integrations.find((i) => i.provider === "calendly");
   const https = siteUrl.startsWith("https://");
+  const calendlyInstant = !!calendly?.settings.webhook_uri && calendly.settings.webhook_state !== "disabled" && calendly.settings.webhook_state !== "missing";
 
   return (
     <div className="space-y-5">
@@ -44,6 +58,14 @@ export function IntegrationsPanel({
           {google ? (
             <>
               <p className="text-sm text-muted-foreground">{google.account_email ?? "Google account"} · since {formatDate(google.connected_at)}</p>
+              <div className="space-y-1 rounded-2xl bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
+                <div>Last sync: <SyncTime iso={google.settings.last_pull_at} /></div>
+                <div>
+                  {Number(google.settings.channel_expiration ?? 0) > Date.now()
+                    ? "Automatic: changes made in Google arrive instantly (push notifications)."
+                    : "Automatic: checked every 5 minutes while the app is open, and by the scheduled sync."}
+                </div>
+              </div>
               <label className="flex items-center justify-between gap-4 text-sm">
                 <span>Also import events I add directly in Google Calendar (as pending appointments)</span>
                 <Switch defaultChecked={!!google.settings.import_external} onCheckedChange={(v) => run(() => setGoogleImportExternal(v))} />
@@ -79,19 +101,26 @@ export function IntegrationsPanel({
         <CardContent className="space-y-3">
           {calendly ? (
             <>
-              <p className="text-sm text-muted-foreground">
-                {calendly.account_email} · since {formatDate(calendly.connected_at)}
-                {typeof calendly.settings.last_pull_at === "string" && ` · last sync ${formatDate(calendly.settings.last_pull_at, "d MMM, HH:mm")}`}
-              </p>
-              {calendly.settings.webhook_uri ? (
-                <p className="text-sm text-muted-foreground">Instant sync is on: bookings and cancellations arrive within seconds.</p>
-              ) : (
-                <p className="text-sm text-amber-700 dark:text-amber-300">
-                  {typeof calendly.settings.webhook_error === "string" ? calendly.settings.webhook_error : "Instant sync isn't active."}{" "}
-                  Bookings are still imported by the scheduled sync, when you click Sync now, and right away from the Booking page.
-                  {!https && " Reconnect after deploying on HTTPS to turn on instant sync."}
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">{calendly.account_email} · since {formatDate(calendly.connected_at)}</p>
+              <div className="space-y-1 rounded-2xl bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
+                <div>Last sync: <SyncTime iso={calendly.settings.last_pull_at} /></div>
+                {calendly.settings.webhook_uri ? <div>Last instant update: <SyncTime iso={calendly.settings.last_webhook_at} /></div> : null}
+                {calendlyInstant ? (
+                  <div>Automatic: bookings and cancellations arrive within seconds (webhook), with a safety check every 30 minutes.</div>
+                ) : (
+                  <div className="text-amber-700 dark:text-amber-300">
+                    {calendly.settings.webhook_state === "disabled" ? "Calendly paused the webhook after delivery errors."
+                      : calendly.settings.webhook_state === "missing" ? "The Calendly webhook was deleted."
+                      : typeof calendly.settings.webhook_error === "string" ? calendly.settings.webhook_error
+                      : "Instant sync isn't active."}{" "}
+                    Automatic sync checks Calendly every 5 minutes while the app is open, plus the scheduled sync, and bookings made on the Booking page arrive right away.
+                    {!https ? " Reconnect after deploying on HTTPS to turn on instant sync." : calendly.settings.webhook_state ? " Reconnect Calendly to create a new webhook." : ""}
+                  </div>
+                )}
+                {typeof calendly.settings.last_sync_error === "string" && (
+                  <div className="text-red-600 dark:text-red-300">Last sync failed: {calendly.settings.last_sync_error}</div>
+                )}
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" loading={pending} onClick={() => run(() => syncCalendlyNow(), {
                   onSuccess: (r) => toast.success(r.changed ? `${r.changed} booking change(s) imported` : "Already up to date"),

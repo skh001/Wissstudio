@@ -3,6 +3,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { siteUrl } from "@/lib/site-url";
+import { patchIntegrationSettings } from "./settings-store";
 
 /**
  * Calendly integration (personal access token).
@@ -24,8 +25,17 @@ interface CalendlySettings {
   webhook_uri?: string;
   webhook_error?: string;
   signing_key: string;
+  /** "active" | "disabled" (Calendly disables a webhook after repeated delivery failures) | "missing" */
+  webhook_state?: string;
+  webhook_checked_at?: string;
+  last_webhook_at?: string;
   last_pull_at?: string;
+  last_sync_error?: string | null;
 }
+
+/** Polling interval: tight when the webhook can't deliver, a light safety net when it can. */
+export const CALENDLY_POLL_MS = { withoutWebhook: 5 * 60_000, withWebhook: 30 * 60_000 } as const;
+const WEBHOOK_CHECK_MS = 60 * 60_000;
 
 interface CalendlyIntegration {
   access_token: string;
@@ -127,6 +137,8 @@ export async function connectCalendly(ownerId: string, token: string) {
       org_uri: resource.current_organization,
       webhook_uri: webhookUri,
       webhook_error: webhookError,
+      webhook_state: webhookUri ? "active" : undefined,
+      webhook_checked_at: webhookUri ? new Date().toISOString() : undefined,
       signing_key: signingKey,
     } satisfies CalendlySettings,
     connected_at: new Date().toISOString(),
@@ -314,10 +326,49 @@ export async function pullCalendlyEvents(ownerId: string): Promise<number> {
     next = page.pagination?.next_page ?? null;
   }
 
-  await createAdminClient().from("integrations")
-    .update({ settings: { ...integ.settings, last_pull_at: new Date().toISOString() } })
-    .eq("owner_id", ownerId).eq("provider", "calendly");
+  await patchIntegrationSettings(ownerId, "calendly", { last_pull_at: new Date().toISOString(), last_sync_error: null });
   return changed;
+}
+
+/** Called by the webhook route after a verified delivery: proves instant sync works. */
+export async function recordCalendlyWebhook(ownerId: string) {
+  await patchIntegrationSettings(ownerId, "calendly", { last_webhook_at: new Date().toISOString(), webhook_state: "active" });
+}
+
+/** Asks Calendly whether our webhook subscription is still delivering (at most once an hour). */
+async function refreshWebhookState(ownerId: string, integ: CalendlyIntegration): Promise<string | undefined> {
+  const { webhook_uri, webhook_state, webhook_checked_at } = integ.settings;
+  if (!webhook_uri) return undefined;
+  if (webhook_checked_at && Date.now() - new Date(webhook_checked_at).getTime() < WEBHOOK_CHECK_MS) return webhook_state;
+  const res = await cfetch(integ.access_token, webhook_uri).catch(() => null);
+  if (!res) return webhook_state; // network error: keep the last known state
+  const state = res.ok ? ((await res.json()) as { resource: { state: string } }).resource.state
+    : res.status === 404 ? "missing" : webhook_state;
+  await patchIntegrationSettings(ownerId, "calendly", { webhook_state: state, webhook_checked_at: new Date().toISOString() });
+  return state;
+}
+
+/**
+ * Automatic sync, called by the cron and by the open app every minute. Does nothing until a pull is due:
+ * every 5 minutes when the webhook can't deliver (none, disabled, deleted), every 30 minutes as a safety
+ * net when it can. Safe to call from several devices at once: bookings are keyed by event URI.
+ */
+export async function autoSyncCalendly(ownerId: string): Promise<{ ran: boolean; changed: number }> {
+  const integ = await getIntegration(ownerId);
+  if (!integ) return { ran: false, changed: 0 };
+  const state = await refreshWebhookState(ownerId, integ);
+  const interval = state === "active" ? CALENDLY_POLL_MS.withWebhook : CALENDLY_POLL_MS.withoutWebhook;
+  const last = integ.settings.last_pull_at ? new Date(integ.settings.last_pull_at).getTime() : 0;
+  if (Date.now() - last < interval) return { ran: false, changed: 0 };
+
+  // claim the slot first so other devices / the cron skip this round
+  await patchIntegrationSettings(ownerId, "calendly", { last_pull_at: new Date().toISOString() });
+  try {
+    return { ran: true, changed: await pullCalendlyEvents(ownerId) };
+  } catch (e) {
+    await patchIntegrationSettings(ownerId, "calendly", { last_sync_error: (e as Error).message });
+    throw e;
+  }
 }
 
 /** Cancels the booking on Calendly when it is cancelled from the dashboard. Never throws. */

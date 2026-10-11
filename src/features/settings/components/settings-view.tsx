@@ -9,6 +9,7 @@ import type { IntegrationStatus, SalonSettings } from "@/types/domain";
 import { BusinessForm } from "./business-form";
 import { DataPanel } from "./data-panel";
 import { IntegrationsPanel } from "./integrations-panel";
+import { NotificationsPanel } from "./notifications-panel";
 import { SalonForm } from "./salon-form";
 
 export function SettingsView(props: {
@@ -40,6 +41,7 @@ export function SettingsView(props: {
           <TabsTrigger value="salon">Salon</TabsTrigger>
           <TabsTrigger value="business">Prices & taxes</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="data">Data</TabsTrigger>
         </TabsList>
         <TabsContent value="salon"><SalonForm settings={props.settings} /></TabsContent>
@@ -48,6 +50,7 @@ export function SettingsView(props: {
           <IntegrationsPanel integrations={props.integrations} googleConfigured={props.googleConfigured}
             serviceRoleConfigured={props.serviceRoleConfigured} siteUrl={props.siteUrl} />
         </TabsContent>
+        <TabsContent value="notifications"><NotificationsPanel /></TabsContent>
         <TabsContent value="data"><DataPanel hasClients={props.hasClients} /></TabsContent>
       </Tabs>
     </div>
